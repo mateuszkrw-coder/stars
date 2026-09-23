@@ -103,6 +103,9 @@ function CC_DSP_FACTORY() {
     return v * this.camp / this.peak;
   };
   PulseModel.prototype.amp = function (k) { this.prep(k); return this.camp; };
+  PulseModel.prototype.isGiant = function (k) {
+    return !!this.giant && rnd(k, this.seed * 7919 + 3) < this.giant[0] && !(this.nulls > 0 && rnd(k, this.seed * 7919 + 2) < this.nulls);
+  };
 
   /* ---------------------------------------------------------------- voice */
   function Voice(id, spec) {
@@ -125,7 +128,11 @@ function CC_DSP_FACTORY() {
     this.norm = 0.3;
     this.lastF = -1;
     this.lastC = null;
+    this.glD = 0;       // glitch: fractional spin-up that decays away
+    this.glTau = 1;
+    this.glT = 0;
   }
+  Voice.prototype.fmul = function () { return this.glD ? 1 + this.glD * Math.exp(-this.glT / this.glTau) : 1; };
   /* Loudness normalisation: clicks are peak-limited, tones are RMS-limited. */
   Voice.prototype.update = function (fEff, clean) {
     if (fEff === this.lastF && clean === this.lastC) return;
@@ -160,6 +167,7 @@ function CC_DSP_FACTORY() {
     this.frame = 0;
     this.dirty = true;
     this.dcR = 1 - TAU * 12 / sr;
+    this.bm = 0; this.bmDur = 3; this.bmT = 1e9; this.bmLp = 0; this.bmLp2 = 0; this.bmPh = 0;
   }
   Synth.prototype.white = function () {
     var s = this.seed;
@@ -194,6 +202,15 @@ function CC_DSP_FACTORY() {
           if (!m.keep || m.keep.indexOf(this.voices[i].id) < 0) { this.voices[i].gt = 0; this.voices[i].tau = m.tau || 0.25; this.voices[i].kill = true; }
         }
         break;
+      case 'glitch':
+        v = this.find(m.id);
+        if (v) { v.glD = m.df; v.glTau = m.tau || 5; v.glT = 0; }
+        break;
+      case 'boom':
+        this.bm = m.amp != null ? m.amp : 1;
+        this.bmDur = m.dur || 3;
+        this.bmT = 0;
+        break;
       case 'global':
         if (m.warp != null) this.warp = m.warp;
         if (m.clean != null) this.clean = m.clean;
@@ -209,7 +226,7 @@ function CC_DSP_FACTORY() {
     var out = [];
     for (var i = 0; i < this.voices.length; i++) {
       var v = this.voices[i];
-      out.push([v.id, v.k, v.x, v.f * this.warp, v.g]);
+      out.push([v.id, v.k, v.x, v.f * this.warp * v.fmul(), v.g]);
     }
     return out;
   };
@@ -223,7 +240,8 @@ function CC_DSP_FACTORY() {
       var v = this.voices[j];
       var fEff = v.f * this.warp;
       v.update(fEff, clean);
-      var inc = fEff / sr;
+      var inc = fEff * v.fmul() / sr;
+      if (v.glD) { v.glT += n / sr; if (v.glT > v.glTau * 12) v.glD = 0; }
       if (inc > 0.45) inc = 0.45;
       var w1 = v.w0 + 1, ws = v.ws, m = v.m;
       var sc = Math.exp(v.scD * (Math.sin(v.scW[0] * t0 + v.scP[0]) + 0.7 * Math.sin(v.scW[1] * t0 + v.scP[1]) + 0.5 * Math.sin(v.scW[2] * t0 + v.scP[2])) / 1.4);
@@ -285,6 +303,23 @@ function CC_DSP_FACTORY() {
     }
     this.hiss = hiss; this.stat = stat; this.wh = wh; this.whF = whF;
     this.lpL = lpL; this.lpR = lpR; this.br = br; this.crk = crk; this.whPh = ph;
+
+    // supernova / starquake rumble: a noise burst whose low-pass closes as it fades, over a falling sub-bass sweep
+    if (this.bmT < this.bmDur * 3) {
+      var bt = this.bmT, lp1 = this.bmLp, lp2 = this.bmLp2, bph = this.bmPh;
+      for (i = 0; i < n; i++) {
+        var tt = bt + i / sr;
+        var env = this.bm * (tt < 0.012 ? tt / 0.012 : Math.exp(-(tt - 0.012) / (this.bmDur * 0.45)));
+        var cut = 0.02 + 0.5 * Math.exp(-tt / (this.bmDur * 0.18));
+        var wn = this.white();
+        lp1 += cut * (wn - lp1); lp2 += cut * (lp1 - lp2);
+        bph += TAU * (28 + 60 * Math.exp(-tt / 0.35)) / sr;
+        var sub = Math.sin(bph) * Math.exp(-tt / (this.bmDur * 0.35));
+        var bs = (lp2 * 2.2 + sub * 0.9) * env;
+        L[i] += bs; R[i] += bs * 0.94 + lp1 * env * 0.15;
+      }
+      this.bmT = bt + n / sr; this.bmLp = lp1; this.bmLp2 = lp2; this.bmPh = bph % TAU;
+    }
 
     // DC blocker and a soft ceiling
     var dcR = this.dcR, xl = this.dcxL, yl = this.dcyL, xr = this.dcxR, yr = this.dcyR;

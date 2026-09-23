@@ -30,6 +30,17 @@ No build step, no dependencies, no server needed.
 - **The arithmetic, shown.** Turns per day, light-cylinder radius, equator speed, spin-down age and
   magnetic field are calculated from the measured period and spin-down rate for each star.
 - **Time control** from 1000× slower (hear a 716 Hz tone fall apart into single ticks) to 100× faster.
+- **Sky from Earth.** Swing round to Earth's view of the sky: about 5,000 real naked-eye stars in their true
+  colours, the constellation figures, the Milky Way along the true galactic plane, and the pulsar blinking
+  where it really sits (the Crab at the tip of Taurus's horn, J1748−2446ad toward the galactic centre).
+  Switching pulsars in this view swings the camera across the sky to the next one.
+- **Cosmic events.** Replay the Crab's supernova of 1054 (a red supergiant collapses, explodes into an
+  expanding shell and debris, and the nebula forms around a newborn pulsar) or Vela's; trigger a Vela
+  "starquake" glitch you can see and hear; and watch giant pulses from the Crab, B1937+21 and B0950+08
+  flash down the line of sight in step with the crack in the audio.
+- **Tour mode.** A full-screen autopilot through all twelve pulsars with cinematic captions, the supernova
+  and glitch included, ending on the sky from Earth. Any key or click exits.
+- **Real recordings.** Six of the pulsars link to Jodrell Bank Observatory's real telescope recordings.
 
 ## Controls
 
@@ -38,6 +49,8 @@ No build step, no dependencies, no server needed.
 | `←` `→` | previous / next pulsar (slowest to fastest) |
 | `Space` | play / pause |
 | `M` | galaxy map |
+| `S` | the sky from Earth |
+| `T` | tour mode |
 | `[` `]` `0` | slow time down, speed it up, back to real time |
 | `?` | how it works |
 
@@ -80,6 +93,7 @@ scenes (real beams are invisible radio waves, and sizes and orbits are not to sc
 index.html          page structure
 css/style.css       layout and type
 js/data.js          the catalogue: periods, distances, stories, sound and scene settings
+js/sky-data.js      naked-eye stars and constellation figures (generated)
 js/dsp.js           pulse model + synthesiser (shared with the AudioWorklet)
 js/audio.js         Web Audio engine: worklet, reverb, limiter, phase reporting
 js/gl.js            small WebGL2 and matrix helpers
@@ -87,6 +101,7 @@ js/scene.js         the 3D scene, galaxy, travel and post-processing
 js/instruments.js   pulse stack, rotation clock, tuning dial
 js/app.js           state, navigation, controls
 tools/build.mjs     bundles everything into dist/cosmic-clocks.html
+tools/make-sky-data.mjs  regenerates js/sky-data.js from the d3-celestial package
 ```
 
 Run `node tools/build.mjs` after editing to refresh the single-file bundle.
@@ -98,3 +113,10 @@ discovery papers: Hewish et al. 1968; Large, Vaughan & Mills 1968; Staelin & Rei
 Hulse & Taylor 1975; Backer et al. 1982; Wolszczan & Frail 1992; Johnston et al. 1993;
 Burgay et al. 2003; Hessels et al. 2006; Caleb et al. 2022. Distances use parallax measurements where
 they exist (e.g. Vela, B0950+08, J0437−4715, B1913+16).
+
+The sky from Earth uses the XHIP compilation of Hipparcos stars (Anderson & Francis 2012) and the IAU
+constellation figures as packaged in [d3-celestial](https://github.com/ofrohn/d3-celestial)
+(BSD-3-Clause, © 2015 Olaf Frohn). Real telescope recordings: Jodrell Bank Observatory,
+[The Sounds of Pulsars](https://www.jb.man.ac.uk/research/pulsar/Education/Sounds/).
+The supernova replay is an artistic illustration, and the glitch is exaggerated about ten-thousand-fold so
+that it is audible (real Vela glitches change the spin rate by about one part in a million).

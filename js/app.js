@@ -12,7 +12,8 @@
   var reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var state = {
     idx: 1, started: false, playing: false, warp: 1, clean: false, volume: 0.75,
-    calm: !!reduced, map: false, scanning: false, tunedAt: performance.now(), timers: [], intro: true
+    calm: !!reduced, view: 'close', scanning: false, tunedAt: performance.now(), timers: [], intro: true,
+    lastGiantK: null, lastFlare: 0, evMuted: false
   };
   var hashIdx = SLUGS.indexOf((location.hash || '').replace('#', '').toLowerCase());
   if (hashIdx >= 0) state.idx = hashIdx;
@@ -217,6 +218,8 @@
     setText('#st-period', 'One turn every ' + p.Pstr);
     setText('#st-story', p.story);
     setText('#st-listen', p.listen);
+    $('#st-rec-row').hidden = !p.rec;
+    $('#st-rec').href = CC.REC_URL;
     renderHear();
 
     var rows = [
@@ -279,15 +282,19 @@
   function goTo(i, opts) {
     opts = opts || {};
     i = ((i % N) + N) % N;
-    if (i === state.idx && !state.map && !opts.force) return;
+    var inSky = state.view === 'sky' && !!scene && !opts.close;
+    if (i === state.idx && state.view === 'close' && !opts.force) return;
+    if (i === state.idx && inSky && !opts.force) return;
     clearTimers();
+    stopEvent();
     state.idx = i;
-    state.map = false;
-    mapUI();
+    if (!inSky) state.view = 'close';
+    viewUI();
     var p = P[i];
     if (state.warp > maxWarp(p)) setWarpIndex(nearestWarpIndex(maxWarp(p)), true);
     voiceIds(p).forEach(function (id) { if (live[id] == null) delete clocks[id]; clockFor(id); });
     state.tunedAt = performance.now();
+    state.lastGiantK = null;
     renderStation(i, true);
     setText('#announce', 'Tuned to ' + p.name + ', ' + p.title + ': ' + fmtRate(1 / p.P) + ' turns per second.');
     rclock.reset(models[i], p, p.id);
@@ -295,7 +302,10 @@
     try { history.replaceState(null, '', '#' + SLUGS[i]); } catch (e) { /* sandboxed */ }
 
     var dur = 1;
-    if (scene) { scene.travel(i, { calm: state.calm }); dur = scene.tr ? scene.tr.dur : 1; }
+    if (scene) {
+      if (inSky) { scene.skyTurnTo(i); dur = scene.skyTurn ? scene.skyTurn.dur * 0.6 : 1; }
+      else { scene.travel(i, { calm: state.calm }); dur = scene.tr ? scene.tr.dur : 1; }
+    }
     if (audioOn()) {
       var keep = voiceIds(p);
       Object.keys(live).forEach(function (id) { if (keep.indexOf(id) < 0) setGain(id, 0, 0.25); });
@@ -306,21 +316,95 @@
         engine.send({ type: 'global', stat: 0 });
       });
     }
+    renderEvents();
   }
 
   function toggleMap() {
     if (!scene) return;
-    if (state.map) { goTo(state.idx, { force: true }); return; }
-    state.map = true;
-    mapUI();
+    if (state.view === 'map') { goTo(state.idx, { force: true, close: true }); return; }
+    stopEvent();
+    state.view = 'map';
+    viewUI();
+    renderEvents();
     scene.travel('map', { calm: state.calm });
   }
-  function mapUI() {
-    var b = $('#btn-map');
-    var label = state.map ? 'Back to ' + P[state.idx].short : 'Galaxy map';
-    b.setAttribute('aria-pressed', state.map ? 'true' : 'false');
-    b.setAttribute('aria-label', label);
-    setText('#btn-map-label', label);
+  function toggleSky() {
+    if (!scene) return;
+    if (state.view === 'sky') { goTo(state.idx, { force: true, close: true }); return; }
+    stopEvent();
+    state.view = 'sky';
+    viewUI();
+    renderEvents();
+    scene.travel('sky', { calm: state.calm });
+  }
+  function viewUI() {
+    var name = P[state.idx].short;
+    [['#btn-map', '#btn-map-label', 'map', 'Galaxy map'], ['#btn-sky', '#btn-sky-label', 'sky', 'Sky from Earth']].forEach(function (b) {
+      var on = state.view === b[2], label = on ? 'Back to ' + name : b[3];
+      $(b[0]).setAttribute('aria-pressed', on ? 'true' : 'false');
+      $(b[0]).setAttribute('aria-label', label);
+      setText(b[1], label);
+    });
+  }
+
+  /* ------------------------------------------------------ cosmic events */
+  var evTimers = [];
+  function renderEvents() {
+    var p = P[state.idx], ev = p.events || [];
+    $('#ev-sn').hidden = ev.indexOf('supernova') < 0;
+    $('#ev-glitch').hidden = ev.indexOf('glitch') < 0;
+  }
+  function evCap(main, sub) {
+    var box = $('#evcap');
+    if (!main) { box.classList.remove('show'); return; }
+    setText('#evcap-main', main);
+    setText('#evcap-sub', sub || '');
+    box.classList.add('show');
+  }
+  function stopEvent() {
+    evTimers.forEach(clearTimeout);
+    evTimers = [];
+    evCap(null);
+    if (scene) { scene.ev = null; scene.evp = null; }
+    if (state.evMuted) {
+      state.evMuted = false;
+      if (audioOn()) voiceIds(P[state.idx]).forEach(function (id) { setGain(id, 1, 0.4); });
+    }
+  }
+  function canRunEvent() { return !!scene && state.view === 'close' && scene.mode === 'close'; }
+  /* A few seconds of history: the star, its collapse, the explosion, and the
+   * pulsar switching on inside the remnant. */
+  function runSupernova() {
+    if (!canRunEvent()) return;
+    stopEvent();
+    var p = P[state.idx], ids = voiceIds(p);
+    scene.startEvent('supernova');
+    if (audioOn()) { ids.forEach(function (id) { setGain(id, 0, 0.35); }); state.evMuted = true; }
+    evCap(p.snWhen[0], p.snWhen[1]);
+    evTimers.push(setTimeout(function () { evCap(null); }, 3300));
+    evTimers.push(setTimeout(function () { if (audioOn()) engine.send({ type: 'boom', amp: 0.6, dur: 3.4 }); }, 3700));
+    evTimers.push(setTimeout(function () {
+      if (audioOn()) ids.forEach(function (id) { setGain(id, 1, 0.9); });
+      state.evMuted = false;
+      evCap(p.snNow[0], p.snNow[1]);
+    }, 7400));
+    evTimers.push(setTimeout(function () { evCap(null); }, 11400));
+  }
+  /* A glitch: the crust cracks, the spin jumps and slowly relaxes. Real Vela
+   * glitches change the rate by about a millionth; this one is exaggerated so
+   * you can hear it. */
+  function runGlitch() {
+    if (!canRunEvent()) return;
+    stopEvent();
+    var p = P[state.idx], c = clockFor(p.id);
+    scene.startEvent('glitch');
+    c.glD = 0.03; c.glT0 = performance.now(); c.glTau = 6;
+    if (audioOn()) {
+      engine.send({ type: 'glitch', id: p.id, df: 0.03, tau: 6 });
+      engine.send({ type: 'boom', amp: 0.3, dur: 0.5 });
+    }
+    evCap('Glitch', 'the spin suddenly jumps, then relaxes (exaggerated so you can hear it)');
+    evTimers.push(setTimeout(function () { evCap(null); }, 4600));
   }
 
   /* ------------------------------------------------------------- dial */
@@ -346,7 +430,7 @@
     state.scanning = false;
     setText('#dial-status', '');
     if (audioOn()) engine.send({ type: 'global', stat: 0, wh: 0 });
-    if (i === state.idx && !state.map) {
+    if (i === state.idx && state.view !== 'map') {
       if (audioOn() && state.playing) {
         var keep = voiceIds(P[i]);
         Object.keys(live).forEach(function (id) { if (keep.indexOf(id) < 0) setGain(id, 0, 0.2); });
@@ -397,6 +481,12 @@
   $('#btn-prev').addEventListener('click', function () { goTo(state.idx - 1); });
   $('#btn-next').addEventListener('click', function () { goTo(state.idx + 1); });
   $('#btn-map').addEventListener('click', toggleMap);
+  $('#btn-sky').addEventListener('click', toggleSky);
+  $('#btn-tour').addEventListener('click', startTour);
+  $('#btn-watch').addEventListener('click', startTour);
+  $('#btn-exit-tour').addEventListener('click', stopTour);
+  $('#ev-sn').addEventListener('click', runSupernova);
+  $('#ev-glitch').addEventListener('click', runGlitch);
   $('#btn-log').addEventListener('click', function () {
     var open = document.body.classList.toggle('log-open');
     $('#btn-log').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -437,6 +527,7 @@
   calmIn.addEventListener('change', function () { state.calm = calmIn.checked; });
 
   document.addEventListener('keydown', function (e) {
+    if (tour) { e.preventDefault(); stopTour(); return; }
     if (!about.hidden) { if (e.key === 'Escape') closeAbout(); return; }
     if (state.intro) { if (e.key === 'Escape') { closeIntro(); goTo(state.idx, { force: true }); } return; }
     var t = e.target, tag = t && t.tagName;
@@ -449,12 +540,14 @@
         if (tag === 'BUTTON' || tag === 'A') return;
         togglePlay(); e.preventDefault(); break;
       case 'm': case 'M': toggleMap(); break;
+      case 's': case 'S': toggleSky(); break;
+      case 't': case 'T': startTour(); break;
       case '[': setWarpIndex(+warpIn.value - 1); break;
       case ']': setWarpIndex(+warpIn.value + 1); break;
       case '0': setWarpIndex(WARP_ONE); break;
       case 'Escape':
         if (document.body.classList.contains('log-open')) $('#btn-log').click();
-        else if (state.map) toggleMap();
+        else if (state.view !== 'close') goTo(state.idx, { force: true, close: true });
         break;
       case '?': case 'i': case 'I': openAbout(); break;
     }
@@ -538,8 +631,8 @@
       }
       el._idx = l.idx;
       var x, y;
-      if (l.kind === 'marker' || l.kind === 'sun') {
-        x = l.x + 10; y = l.y - el._h / 2;
+      if (l.kind === 'marker' || l.kind === 'sun' || l.kind === 'skycur') {
+        x = l.x + (l.kind === 'skycur' ? 20 : 10); y = l.y - el._h / 2;
         for (var tries = 0; tries < 8; tries++) {
           var hit = false;
           for (var j = 0; j < placed.length; j++) {
@@ -549,6 +642,8 @@
           if (!hit) break;
         }
         placed.push({ x: x, y: y, w: el._w, h: el._h });
+      } else if (l.kind === 'const') {
+        x = l.x - el._w / 2; y = l.y - el._h / 2;
       } else {
         x = l.x - el._w / 2; y = l.y - el._h - 4;
       }
@@ -575,6 +670,8 @@
     var top = $('.topbar').getBoundingClientRect().bottom, bottom = $('.console').getBoundingClientRect().top;
     var cx = (left + right) / 2, cy = (top + bottom) / 2;
     scene.lensShift = [cx / W * 2 - 1, 1 - cy / H * 2];
+    $('#events').style.left = cx.toFixed(0) + 'px';
+    $('#evcap').style.left = cx.toFixed(0) + 'px';
   }
   window.addEventListener('resize', updateLens);
 
@@ -585,6 +682,75 @@
     clearTimeout(toast.t);
     toast.t = setTimeout(function () { t.hidden = true; }, 4200);
   }
+
+  /* -------------------------------------------------------------- tour */
+  var tour = null;
+  function startTour() {
+    if (tour) return;
+    if (!scene) { toast('The tour needs WebGL, which is not available in this browser.'); return; }
+    closeIntro();
+    if (!state.started) startAudio(); else if (!state.playing) play();
+    tour = { i: -1, phase: 'travel', t: 0, dwell: 10, fs: false, fired: false };
+    scene.cinema = true;
+    document.body.classList.add('cinema');
+    var el = document.documentElement;
+    try {
+      if (el.requestFullscreen && !document.fullscreenElement) {
+        var req = el.requestFullscreen();
+        if (req && req.then) req.then(function () { if (tour) tour.fs = true; }).catch(function () { /* not allowed here */ });
+      }
+    } catch (e) { /* not allowed here */ }
+    tourNext();
+  }
+  function tourNext() {
+    if (!tour) return;
+    $('#cine').classList.remove('show');
+    tour.i = tour.i >= N ? 0 : tour.i + 1;
+    tour.t = 0; tour.phase = 'travel'; tour.fired = false;
+    if (tour.i < N) goTo(tour.i, { force: true, close: true });
+    else if (state.view !== 'sky') toggleSky();
+  }
+  function showCine() {
+    var p = P[state.idx], home = tour && tour.i >= N;
+    setText('#cine-eyebrow', home ? 'All twelve, seen from home' : String(state.idx + 1).padStart(2, '0') + ' / ' + N + ' \u00b7 ' + p.constellation);
+    setText('#cine-name', home ? 'The sky from Earth' : p.name);
+    setText('#cine-title', home ? 'Every marker is a dead star, still keeping time' : p.title);
+    setText('#cine-rate', home ? '' : fmtRate(1 / p.P));
+    setText('#cine-unit', home ? '' : 'turns per second');
+    $('#cine').classList.add('show');
+  }
+  function tourTick(dt) {
+    if (!tour || !scene) return;
+    tour.t += dt;
+    var p = P[state.idx];
+    if (tour.phase === 'travel') {
+      if (scene.mode !== 'travel') {
+        tour.phase = 'dwell';
+        tour.t = 0;
+        tour.dwell = tour.i >= N ? 12 : p.id === 'B0531+21' ? 16 : 11;
+        showCine();
+      }
+      return;
+    }
+    if (!tour.fired && tour.i < N) {
+      if (p.id === 'B0531+21' && tour.t > 2.2) { tour.fired = true; runSupernova(); }
+      else if (p.id === 'B0833-45' && tour.t > 4) { tour.fired = true; runGlitch(); }
+    }
+    if (tour.t > tour.dwell - 1.2) $('#cine').classList.remove('show');
+    if (tour.t > tour.dwell) tourNext();
+  }
+  function stopTour() {
+    if (!tour) return;
+    var fs = tour.fs;
+    tour = null;
+    $('#cine').classList.remove('show');
+    if (scene) scene.cinema = false;
+    document.body.classList.remove('cinema');
+    if (fs && document.fullscreenElement && document.exitFullscreen) { try { document.exitFullscreen(); } catch (e) { /* ignore */ } }
+    setTimeout(updateLens, 80);
+  }
+  document.addEventListener('pointerdown', function () { if (tour) stopTour(); }, true);
+  document.addEventListener('fullscreenchange', function () { if (tour && tour.fs && !document.fullscreenElement) stopTour(); });
 
   /* -------------------------------------------------------------- loop */
   var flashState = 0, lastT = performance.now(), textT = 0, blockT = 0;
@@ -597,11 +763,25 @@
     var tH = state.playing && engine.running() ? engine.heardTime() : null;
     for (var id in clocks) {
       var c = clocks[id], got = tH != null && live[id] != null ? engine.phase(id, tH) : null;
-      if (got) c.phi = got.phi; else c.phi += c.f * state.warp * dt;
+      if (got) { c.phi = got.phi; c.fNow = got.f; }
+      else {
+        var fm = c.glD ? 1 + c.glD * Math.exp(-(now - c.glT0) / 1000 / c.glTau) : 1;
+        c.fNow = c.f * state.warp * fm;
+        c.phi += c.fNow * dt;
+      }
     }
     var p = P[state.idx], m = models[state.idx], cc = clockFor(p.id);
-    var fEff = cc.f * state.warp;
+    var fEff = cc.fNow || cc.f * state.warp;
     var k = Math.floor(cc.phi - cc.w0), env = m.value(k, cc.phi - k, 1);
+    // giant pulses: flash the beam that points at us, in step with the crack you hear
+    var gk = Math.floor(cc.phi);
+    if (state.lastGiantK === null || gk < state.lastGiantK || gk - state.lastGiantK > 5000) state.lastGiantK = gk;
+    else if (m.giant && gk > state.lastGiantK) {
+      for (var kk = Math.max(state.lastGiantK + 1, gk - 80); kk <= gk; kk++) {
+        if (m.isGiant(kk) && now - state.lastFlare > 450) { state.lastFlare = now; if (scene && !state.calm) scene.flare(1); break; }
+      }
+      state.lastGiantK = gk;
+    }
     flashState = Math.max(Math.min(env, 2), flashState * Math.exp(-dt / 0.16));
     // flashes fade out above 2 turns a second (no strobing), and in calm mode
     var fg = state.calm ? 0.1 : fEff <= 2 ? 1 : fEff >= 4 ? 0 : 1 - (fEff - 2) / 2;
@@ -624,6 +804,7 @@
       }
     }
     syncLabels();
+    tourTick(dt);
 
     textT -= dt;
     if (textT <= 0) {
@@ -641,6 +822,9 @@
       setText('#clock-meta', rclock.count ? nf.format(rclock.count) + ' folded' : 'listening');
       var lv = engine.level();
       $('#vu').style.height = Math.min(100, lv * 380).toFixed(0) + '%';
+      var evShow = state.view === 'close' && !tour && !!P[state.idx].events && !!scene && scene.mode === 'close';
+      var evBox = $('#events');
+      if (evBox.hidden === evShow) evBox.hidden = !evShow;
       blockT -= 0.12;
       if (blockT <= 0) { blockT = 1; measureBlockers(); }
     }
@@ -651,7 +835,8 @@
   renderStation(state.idx, false);
   rclock.reset(models[state.idx], P[state.idx], P[state.idx].id);
   setWarpIndex(WARP_ONE, true);
-  mapUI();
+  viewUI();
+  renderEvents();
   playUI();
   if (scene) {
     scene.onArrive = function () { updateLens(); };

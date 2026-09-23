@@ -47,12 +47,12 @@
     'in vec2 vUv; out vec4 o;',
     'uniform vec3 uO, uS, uT;',
     'uniform vec3 uNebA, uNebB, uBandN, uGc, uFocus;',
-    'uniform float uAmt, uStyle, uSeed, uBand;',
+    'uniform float uAmt, uStyle, uSeed, uBand, uBandW;',
     'void main(){',
     '  vec3 d = normalize(uO + (vUv.x*2.0-1.0)*uS + (vUv.y*2.0-1.0)*uT);',
     '  float lat = dot(d, uBandN);',
-    '  float core = exp(-lat*lat/0.028);',
-    '  float lane = exp(-lat*lat/0.0035);',
+    '  float core = exp(-lat*lat/uBandW);',
+    '  float lane = exp(-lat*lat/(uBandW*0.125));',
     '  float mwn = fbm(d*3.1 + uSeed);',
     '  float dust = smoothstep(0.38, 0.72, fbm(d*7.0 + uSeed*1.7 + 4.0));',
     '  float grain = fbm(d*22.0 + uSeed*2.3);',
@@ -149,7 +149,7 @@
   var FS_SPH = HEAD + NOISE + [
     'in vec3 vW; out vec4 o;',
     'uniform mat4 uVP; uniform mat3 uBody; uniform vec3 uEye, uCenter, uCol, uLight, uMagB;',
-    'uniform float uRad, uKind, uFlash, uTexAmt, uOut, uTime, uBright;',
+    'uniform float uRad, uKind, uFlash, uTexAmt, uOut, uTime, uBright, uQuake;',
     'void main(){',
     '  vec3 rd = normalize(vW - uEye);',
     '  vec3 oc = uEye - uCenter;',
@@ -166,15 +166,22 @@
     '    float tex = mix(0.55, fbm3(nb*4.5 + 3.0), uTexAmt);',
     '    float ring = mix(0.5, vnoise(vec3(nb.z*14.0, 0.0, 1.0)), uTexAmt*0.6);',
     '    float cap = exp(-(1.0 - abs(dot(nb, uMagB)))*16.0);',
-    '    col = uCol*(0.45 + 0.55*mu)*(0.62 + 0.6*tex + 0.2*ring)*2.1;',
-    '    col += vec3(0.85, 0.93, 1.0)*cap*5.0;',
-    '    col += vec3(0.35, 0.55, 1.0)*pow(1.0 - mu, 3.0)*2.2;',
-    '    col *= 1.0 + uFlash*0.9;',
+    '    col = uCol*vec3(0.8, 0.9, 1.06)*(0.3 + 0.7*mu)*(0.45 + 0.8*tex + 0.3*ring)*0.72;',
+    '    col += vec3(0.85, 0.93, 1.0)*cap*1.9;',
+    '    col += vec3(0.3, 0.5, 1.0)*pow(1.0 - mu, 3.0)*1.0;',
+    '    col *= 1.0 + uFlash*0.8;',
+    '    if (uQuake > 0.001) { float cr = pow(1.0 - abs(2.0*fbm3(nb*6.5 + 1.7) - 1.0), 12.0); col += vec3(0.8, 0.9, 1.0)*cr*uQuake*7.0; }',
     '  } else if (uKind < 1.5) {',
     '    float gran = fbm3(nb*6.0 + uTime*0.05);',
     '    float limb = 0.35 + 0.65*pow(mu, 0.55);',
     '    col = uCol*limb*(0.8 + 0.4*gran)*uBright;',
     '    col += uCol*pow(1.0 - mu, 4.0)*0.6*uBright;',
+    '  } else if (uKind > 2.5) {',
+    '    float g1 = fbm(nb*3.0 + uTime*0.06);',
+    '    float g2 = fbm3(nb*9.0 - uTime*0.12);',
+    '    float hot = smoothstep(0.38, 0.78, g1*0.75 + g2*0.4);',
+    '    col = mix(vec3(0.75, 0.16, 0.04), vec3(1.0, 0.66, 0.3), hot)*(0.2 + 0.95*pow(mu, 0.5))*uBright;',
+    '    col += vec3(1.0, 0.35, 0.12)*pow(1.0 - mu, 3.0)*0.45*uBright;',
     '  } else {',
     '    float lam = max(dot(N, uLight), 0.0);',
     '    float tex = fbm(nb*2.6 + 11.0);',
@@ -224,10 +231,10 @@
   /* Points: static stars, particles riding field lines, particles in the beams. */
   var VS_PTS = HEAD + [
     'layout(location=0) in vec4 aA; layout(location=1) in vec4 aB;',
-    'uniform mat4 uVP, uMag; uniform vec3 uEye, uB1, uQ1, uPCol; uniform float uPx, uTime, uMode, uLc, uLen, uRho;',
+    'uniform mat4 uVP, uMag; uniform vec3 uEye, uB1, uQ1, uPCol; uniform float uPx, uTime, uMode, uLc, uLen, uRho, uDpr, uEv;',
     'out vec3 vC; out float vA;',
     'void main(){',
-    '  vec3 wp; float size; float a = 1.0; vec3 col = uPCol;',
+    '  vec3 wp; float size; float a = 1.0; vec3 col = uPCol; bool pix = false;',
     '  if (uMode < 0.5) {',
     '    wp = aA.xyz; size = aA.w; col = aB.rgb;',
     '    a = 0.72 + 0.28*sin(uTime*(0.6 + aB.a*2.2) + aB.a*50.0);',
@@ -239,6 +246,14 @@
     '    vec3 mp = vec3(r*sin(th)*cos(aA.y), r*sin(th)*sin(aA.y), r*cos(th));',
     '    wp = (uMag*vec4(mp, 1.0)).xyz; size = aB.y;',
     '    a = sin(s*3.14159265)*(1.0 - smoothstep(uLc*0.8, uLc*1.1, r));',
+    '  } else if (uMode > 3.5) {',
+    '    float tau = uEv;',
+    '    float r = 4.0 + aA.w*tau*(1.0 - 0.03*tau);',
+    '    wp = aA.xyz*r; size = aB.a*(1.0 + 0.12*tau); col = aB.rgb;',
+    '    a = tau > 0.0 ? smoothstep(0.0, 0.12, tau)*exp(-tau/4.5) : 0.0;',
+    '  } else if (uMode > 2.5) {',
+    '    wp = aA.xyz; size = aA.w; col = aB.rgb; pix = true;',
+    '    a = 0.86 + 0.14*sin(uTime*(1.1 + aB.a*2.5) + aB.a*40.0);',
     '  } else {',
     '    float s = fract(aA.z + uTime*aA.w);',
     '    float r = 1.4 + s*uLen;',
@@ -249,11 +264,14 @@
     '    a = (1.0 - s)*smoothstep(0.0, 0.06, s);',
     '  }',
     '  gl_Position = uVP*vec4(wp, 1.0);',
-    '  float dist = max(length(wp - uEye), 1e-4);',
-    '  float sz = size*uPx/dist;',
-    '  float ps = clamp(sz, 1.3, 28.0);',
-    '  gl_PointSize = ps;',
-    '  vC = col; vA = a*min(1.0, (sz*sz)/(ps*ps));',
+    '  if (pix) { gl_PointSize = size*uDpr; vC = col; vA = a; }',
+    '  else {',
+    '    float dist = max(length(wp - uEye), 1e-4);',
+    '    float sz = size*uPx/dist;',
+    '    float ps = clamp(sz, 1.3, 28.0);',
+    '    gl_PointSize = ps;',
+    '    vC = col; vA = a*min(1.0, (sz*sz)/(ps*ps));',
+    '  }',
     '  if (gl_Position.w <= 0.0) vA = 0.0;',
     '}'
   ].join('\n');
@@ -280,10 +298,11 @@
     '}'
   ].join('\n');
   var FS_GLOW = HEAD + [
-    'in vec2 vP; out vec4 o; uniform vec3 uCol; uniform float uInt, uOut, uCore;',
+    'in vec2 vP; out vec4 o; uniform vec3 uCol; uniform float uInt, uOut, uCore, uRing;',
     'void main(){',
     '  float r2 = dot(vP, vP); if (r2 > 1.0) discard;',
     '  float g = exp(-r2*7.0)*0.55 + exp(-r2*48.0)*uCore + (1.0 - sqrt(r2))*0.06;',
+    '  if (uRing > 0.0) { float rr = sqrt(r2), q = (rr - uRing)/0.035; g = exp(-q*q) + 0.25*exp(-q*q*0.08); }',
     '  o = vec4(uCol*g*uInt*uOut, 1.0);',
     '}'
   ].join('\n');
@@ -298,6 +317,7 @@
     'uniform vec3 uC[2]; uniform mat3 uS[2]; uniform vec4 uP[2]; uniform vec2 uW[2];',
     'uniform vec3 uCc[2]; uniform vec3 uCh[2]; uniform float uRad[2];',
     'uniform float uJet, uTorus, uTime, uOut, uFrame, uBound;',
+    'uniform vec4 uShell; uniform vec3 uShellA, uShellB;',
     'const float PI = 3.14159265;',
     'float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y)*p3.z); }',
     'float h3(vec3 p){ p = fract(p*0.3183099 + vec3(0.71,0.113,0.419)); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }',
@@ -368,6 +388,14 @@
     '    vec3 s = beam(0, p);',
     '    if (uN > 1) s += beam(1, p);',
     '    if (s.r + s.g + s.b > 1e-4) s *= 0.55 + 0.9*vn(p*0.8 - normalize(p)*uTime*1.6);',
+    '    if (uShell.z > 0.0) {',
+    '      float rs = length(p), d = (rs - uShell.x)/uShell.y;',
+    '      if (d > -3.0 && d < 3.0) {',
+    '        float nn = vn(p*0.2 + uShell.w*0.25);',
+    '        float fil = pow(1.0 - abs(2.0*vn(p*0.5 - uShell.w*0.15) - 1.0), 5.0);',
+    '        s += mix(uShellB, uShellA, clamp(0.55 - d*0.3, 0.0, 1.0))*exp(-d*d)*(0.15 + 0.7*nn + 1.9*fil)*uShell.z/uShell.y;',
+    '      }',
+    '    }',
     '    acc += s;',
     '  }',
     '  o = vec4(acc*dt*uOut, 1.0);',
@@ -567,6 +595,39 @@
 
   function galToWorld(g) { return [g.x, g.z, -g.y]; }
 
+  /* Equatorial coordinates to the sky-view world frame (celestial north = +y). */
+  function eqToWorld(raDeg, decDeg) {
+    var a = raDeg * DEG, d = decDeg * DEG;
+    return [Math.cos(d) * Math.cos(a), Math.sin(d), -Math.cos(d) * Math.sin(a)];
+  }
+  function slerp(a, b, t) {
+    var th = Math.acos(clamp(V.dot(a, b), -1, 1));
+    if (th < 1e-4) return V.norm(V.lerp(a, b, t));
+    var sn = Math.sin(th);
+    return V.add(V.mul(a, Math.sin((1 - t) * th) / sn), V.mul(b, Math.sin(t * th) / sn));
+  }
+  /* Star colour from its B-V index. */
+  var BV = [[-0.4, [0.62, 0.72, 1.0]], [0.0, [0.8, 0.86, 1.0]], [0.4, [1.0, 0.97, 0.93]], [0.8, [1.0, 0.88, 0.72]], [1.2, [1.0, 0.78, 0.56]], [1.8, [1.0, 0.66, 0.42]]];
+  function bvColor(b) {
+    if (b <= BV[0][0]) return BV[0][1];
+    for (var i = 1; i < BV.length; i++) {
+      if (b <= BV[i][0]) return V.lerp(BV[i - 1][1], BV[i][1], (b - BV[i - 1][0]) / (BV[i][0] - BV[i - 1][0]));
+    }
+    return BV[BV.length - 1][1];
+  }
+  /* Debris thrown out by the supernova replay. */
+  function buildEjecta(gl) {
+    var r = G.rng(1054), d = [];
+    for (var i = 0; i < 1600; i++) {
+      var dir = V.norm([gaussRand(r), gaussRand(r) * 0.85, gaussRand(r)]);
+      var sp = 1.2 + 4.5 * Math.pow(r(), 0.7), roll = r();
+      var c = roll < 0.55 ? [1.0, 0.5 + 0.3 * r(), 0.18] : roll < 0.72 ? [1.0, 0.3, 0.25] : [0.6, 0.75, 1.0];
+      var b = 0.6 + 1.2 * r();
+      d.push(dir[0], dir[1], dir[2], sp, c[0] * b, c[1] * b, c[2] * b, 0.12 + 0.3 * r());
+    }
+    return new G.Mesh(gl, new Float32Array(d), [[0, 4], [1, 4]], null, gl.POINTS);
+  }
+
   /* ================================================================ Scene */
   function Scene(canvas) {
     this.canvas = canvas;
@@ -630,6 +691,16 @@
     this.perf = { acc: 0, n: 0 };
     this.lastEye = [0, 0, 20];
     this.fade = 0;
+    this.wSky = 0;
+    this.sky = null;
+    this.skyCam = { yaw: 0, pitch: 0, fov: 60 * DEG, fovTarget: 60 * DEG };
+    this.skyTurn = null;
+    this.skyDir = this.pulsars.map(function (p) { return eqToWorld(p.ra, p.dec); });
+    this.ev = null;
+    this.evp = null;
+    this.flareT = 9;
+    this.flareAmp = 0;
+    this.cinema = false;
   }
 
   Scene.prototype.makeCube = function () {
@@ -649,16 +720,16 @@
     [[0, 0, 1], [1, 0, 0], [0, -1, 0]], [[0, 0, -1], [-1, 0, 0], [0, -1, 0]]
   ];
 
-  Scene.prototype.renderCubeFace = function (ci, face, pr) {
+  Scene.prototype.renderCubeFace = function (tex, face, pr) {
     var gl = this.gl, p = this.pQuadCube, s = this.cubeSize, v = pr.vis, f = FACES[face];
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.cubeFb);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + face, this.cubes[ci], 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + face, tex, 0);
     gl.viewport(0, 0, s, s);
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
     p.use().f3('uO', f[0]).f3('uS', f[1]).f3('uT', f[2])
       .f3('uNebA', v.neb.a).f3('uNebB', v.neb.b).f1('uAmt', v.neb.amt).f1('uStyle', v.neb.style).f1('uSeed', v.neb.seed)
-      .f1('uBand', v.band).f3('uBandN', V.norm([0.35, 0.86, -0.36])).f3('uGc', V.norm([-0.8, 0.28, -0.55]))
-      .f3('uFocus', pr.focus);
+      .f1('uBand', v.band).f3('uBandN', pr.bandN || V.norm([0.35, 0.86, -0.36])).f3('uGc', pr.gc || V.norm([-0.8, 0.28, -0.55]))
+      .f1('uBandW', pr.bandW || 0.028).f3('uFocus', pr.focus);
     this.tri.draw();
   };
 
@@ -758,7 +829,7 @@
     this.cur = idx;
     var target = this.preset ? 1 - this.cubeActive : 0;
     if (immediate) {
-      for (var f = 0; f < 6; f++) this.renderCubeFace(target, f, this.preset);
+      for (var f = 0; f < 6; f++) this.renderCubeFace(this.cubes[target], f, this.preset);
       this.cubeActive = target;
       this.cubeJob = null;
     } else {
@@ -779,19 +850,147 @@
     return { target: this.gpos[idx], dist: DNEAR, az: -2.05 + idx * 0.37, el: 0.42 };
   };
 
-  /* Start a trip. from: 'close' | 'map'; to: pulsar index or 'map'. */
+  Scene.prototype.sunView = function () {
+    return { target: this.sunPos, dist: DNEAR, az: -1.2, el: 0.5 };
+  };
+
+  /* Start a trip. From the close-up, the map or the sky; to a pulsar index, 'map' or 'sky'. */
   Scene.prototype.travel = function (to, opts) {
     opts = opts || {};
-    var fromClose = this.mode === 'close';
-    var gFrom = fromClose ? this.nearView(this.cur) : this.currentGal();
-    var gTo = to === 'map' ? this.mapView() : this.nearView(to);
+    var fromClose = this.mode === 'close', fromSky = this.mode === 'sky';
+    var gFrom = fromClose ? this.nearView(this.cur) : fromSky ? this.sunView() : this.currentGal();
+    var gTo = to === 'map' ? this.mapView() : to === 'sky' ? this.sunView() : this.nearView(to);
     var span = V.len(V.sub(gFrom.target, gTo.target));
     var dur;
     if (opts.calm) dur = 1.1;
-    else if (to === 'map') dur = fromClose ? 2.3 : 1.2;
-    else dur = (fromClose ? 2.2 : 1.6) + 0.35 * Math.log(1 + span * 4);
-    this.tr = { to: to, t: 0, dur: dur, gFrom: gFrom, gTo: gTo, aOut: fromClose, bIn: to !== 'map', span: span, calm: !!opts.calm, fromIdx: this.cur };
+    else if (to === 'map') dur = fromClose || fromSky ? 2.3 : 1.2;
+    else dur = (fromClose || fromSky ? 2.2 : 1.6) + 0.35 * Math.log(1 + span * 4);
+    if (to === 'sky') {
+      this.ensureSky();
+      this.skyCam.yaw = 0; this.skyCam.pitch = 0;
+      this.skyCam.fov = 100 * DEG; this.skyCam.fovTarget = (this.cssW < 760 ? 72 : 60) * DEG;
+      this.skyTurn = null;
+    }
+    this.tr = {
+      to: to, t: 0, dur: dur, gFrom: gFrom, gTo: gTo, span: span, calm: !!opts.calm, fromIdx: this.cur,
+      aOut: fromClose, bIn: typeof to === 'number', skyOut: fromSky, skyIn: to === 'sky'
+    };
     this.mode = 'travel';
+  };
+
+  /* In the sky view: swing the telescope across the sky to another pulsar. */
+  Scene.prototype.skyLook = function () {
+    var base = this.skyDir[this.cur] || [0, 0, -1];
+    if (this.skyTurn) base = slerp(this.skyTurn.from, base, ease(clamp(this.skyTurn.t / this.skyTurn.dur, 0, 1)));
+    var up = Math.abs(base[1]) > 0.985 ? [0, 0, 1] : [0, 1, 0];
+    var f = V.rot(base, up, this.skyCam.yaw);
+    var r = V.norm(V.cross(f, up));
+    return { f: V.norm(V.rot(f, r, this.skyCam.pitch)), up: up };
+  };
+  Scene.prototype.skyTurnTo = function (idx) {
+    var from = this.skyLook().f;
+    this.applyPreset(idx, false);
+    this.skyCam.yaw = 0; this.skyCam.pitch = 0;
+    var ang = Math.acos(clamp(V.dot(from, this.skyDir[idx]), -1, 1));
+    this.skyTurn = { from: from, t: 0, dur: 1.4 + 0.7 * ang };
+  };
+
+  /* Stars, constellations and the Milky Way as seen from Earth (built on first use). */
+  Scene.prototype.ensureSky = function () {
+    if (this.sky) return this.sky;
+    var gl = this.gl, SK = CC.SKY, sky = {}, i;
+    var bin = atob(SK.stars), n = SK.starCount, u16 = new Uint16Array(n * 4);
+    for (i = 0; i < n * 4; i++) u16[i] = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+    var data = new Float32Array(n * 8), rnd = G.rng(4242);
+    for (i = 0; i < n; i++) {
+      var ra = u16[i * 4] / 65535 * 360, dec = u16[i * 4 + 1] / 65535 * 180 - 90;
+      var mag = u16[i * 4 + 2] / 1000 - 2, bv = u16[i * 4 + 3] / 10000 - 0.5;
+      var d = eqToWorld(ra, dec), flux = Math.pow(10, -0.4 * (mag - 1));
+      var size = clamp(1.25 + 2.4 * Math.pow(flux, 0.33), 1.25, 7.5);
+      var inten = clamp(0.28 + 0.95 * Math.pow(flux, 0.5), 0.18, 2.6);
+      var c = bvColor(bv);
+      data.set([d[0] * 100, d[1] * 100, d[2] * 100, size, c[0] * inten, c[1] * inten, c[2] * inten, rnd()], i * 8);
+    }
+    sky.stars = new G.Mesh(gl, data, [[0, 4], [1, 4]], null, gl.POINTS);
+    var all = [];
+    sky.figures = {};
+    SK.lines.forEach(function (fig) {
+      var polys = [];
+      fig[1].forEach(function (arr) {
+        var pts = [];
+        for (var k = 0; k + 3 < arr.length; k += 2) {
+          var a = eqToWorld(arr[k], arr[k + 1]), b = eqToWorld(arr[k + 2], arr[k + 3]);
+          for (var q = 0; q < 8; q++) pts.push(V.mul(slerp(a, b, q / 8), 100));
+        }
+        pts.push(V.mul(eqToWorld(arr[arr.length - 2], arr[arr.length - 1]), 100));
+        polys.push({ pts: pts });
+      });
+      sky.figures[fig[0]] = polys;
+      all.push.apply(all, polys);
+    });
+    sky.lines = lineMesh(gl, all);
+    var grid = [], h, dd;
+    for (h = 0; h < 24; h += 2) { var gp = []; for (dd = -80; dd <= 80; dd += 4) gp.push(V.mul(eqToWorld(h * 15, dd), 100)); grid.push({ pts: gp }); }
+    [-60, -30, 0, 30, 60].forEach(function (de) { var cp = []; for (var a2 = 0; a2 <= 360; a2 += 3) cp.push(V.mul(eqToWorld(a2, de), 100)); grid.push({ pts: cp }); });
+    sky.grid = lineMesh(gl, grid);
+    sky.names = SK.names.map(function (nm) { return { abbr: nm[0], name: nm[1], dir: eqToWorld(nm[2], nm[3]) }; });
+    sky.cube = this.makeCube();
+    var ngp = eqToWorld(192.85948, 27.12825), gc = eqToWorld(266.40499, -28.93617);
+    var earth = { vis: { neb: { a: [0, 0, 0], b: [0, 0, 0], amt: 0, style: 0, seed: 9.1 }, band: 0.72 }, focus: gc, bandN: ngp, gc: gc, bandW: 0.04 };
+    for (var fc = 0; fc < 6; fc++) this.renderCubeFace(sky.cube, fc, earth);
+    this.sky = sky;
+    return sky;
+  };
+
+  Scene.prototype.skyHighlight = function () {
+    var p = this.pulsars[this.cur], sky = this.sky;
+    if (!p || !sky) return null;
+    var hit = null;
+    for (var i = 0; i < sky.names.length; i++) if (sky.names[i].name.toLowerCase() === p.constellation.toLowerCase()) hit = sky.names[i].abbr;
+    if (sky.hlKey === hit) return sky.hl;
+    if (sky.hl) sky.hl.dispose();
+    sky.hl = hit && sky.figures[hit] ? lineMesh(this.gl, sky.figures[hit]) : null;
+    sky.hlKey = hit;
+    return sky.hl;
+  };
+
+  /* ------------------------------------------------------------- events */
+  Scene.prototype.startEvent = function (kind) {
+    if (!this.preset) return 0;
+    this.ev = { kind: kind, t: 0, dur: kind === 'supernova' ? 12.5 : 3.2 };
+    if (kind === 'supernova' && !this.ejecta) this.ejecta = buildEjecta(this.gl);
+    return this.ev.dur;
+  };
+  Scene.prototype.flare = function (amp) { this.flareT = 0; this.flareAmp = amp || 1; };
+  Scene.prototype.updateEvents = function (dt) {
+    this.flareT += dt;
+    var ev = this.ev;
+    if (!ev) { this.evp = null; return; }
+    ev.t += dt;
+    var t = ev.t, e = { kind: ev.kind, vis: 1, neb: 1, zoom: 1, prog: 0, progR: 6.5, progBright: 1, flash: 0, shell: null, ejT: -1, quake: 0, ring: null, shake: null };
+    if (ev.kind === 'supernova') {
+      var tx = 3.7;
+      e.vis = Math.max(1 - smooth(0, 0.8, t), smooth(7.2, 8.8, t));
+      e.neb = t < tx ? lerp(1, 0.08, smooth(0, 1.2, t)) : lerp(0.08, 1, smooth(6.2, 10, t));
+      e.zoom = 1 + 1.4 * smooth(0.2, 2.6, t) - 1.4 * smooth(8.5, 11.8, t);
+      e.prog = smooth(0.5, 1.5, t) * (1 - smooth(tx - 0.02, tx + 0.18, t));
+      e.progR = 6.5 - 1.6 * smooth(3.2, tx, t);
+      e.progBright = 1 + 1.8 * smooth(3.2, tx, t);
+      if (t > tx) {
+        var te = t - tx, R = 2.5 + 16 * (1 - Math.exp(-te / 1.8));
+        e.flash = 1.8 * Math.exp(-te / 0.25) + 0.15 * Math.exp(-te / 2.0);
+        e.shell = { R: R, W: 0.8 + 0.1 * R, amp: 0.2 * Math.exp(-te / 3.2) * smooth(0, 0.12, te) };
+        e.ejT = te;
+      }
+    } else if (ev.kind === 'glitch') {
+      e.quake = Math.exp(-t / 0.45);
+      e.ring = { r: 1.3 + 15 * (1 - Math.exp(-t / 0.55)), a: Math.exp(-t / 0.75) };
+      var sh = 0.3 * Math.exp(-t / 0.28);
+      e.shake = [sh * Math.sin(t * 83), sh * Math.sin(t * 67 + 1.3), sh * Math.sin(t * 71 + 2.1)];
+      e.flash = 0.9 * Math.exp(-t / 0.22);
+    }
+    if (t >= ev.dur) { this.ev = null; this.evp = null; return; }
+    this.evp = e;
   };
 
   Scene.prototype.currentGal = function () {
@@ -803,16 +1002,19 @@
     this.mode = 'close';
     this.tr = null;
     this.wClose = 1;
+    this.wSky = 0;
   };
 
   Scene.prototype.updateTravel = function (dt) {
     var tr = this.tr;
     tr.t += dt;
     var u = clamp(tr.t / tr.dur, 0, 1);
-    var A = tr.aOut ? 0.3 : 0, B = tr.bIn ? 0.7 : 1;
-    if (tr.calm) { A = tr.aOut ? 0.45 : 0; B = tr.bIn ? 0.55 : 1; }
+    var goOut = tr.aOut || tr.skyOut, comeIn = tr.bIn || tr.skyIn;
+    var A = goOut ? 0.3 : 0, B = comeIn ? 0.7 : 1;
+    if (tr.calm) { A = goOut ? 0.45 : 0; B = comeIn ? 0.55 : 1; }
     var wA = tr.aOut ? 1 - smooth(A * 0.35, A, u) : 0;
     var wB = tr.bIn ? smooth(B, B + (1 - B) * 0.6, u) : 0;
+    this.wSky = tr.skyOut ? 1 - smooth(A * 0.35, A, u) : tr.skyIn ? smooth(B, B + (1 - B) * 0.6, u) : 0;
     // swap the close-up preset once the old one has faded out
     if (tr.bIn && u >= A && this.cur !== tr.to) this.applyPreset(tr.to, false);
     this.wClose = u < 0.5 ? wA : wB;
@@ -822,8 +1024,8 @@
     var gA = tr.gFrom, gB = tr.gTo;
     var hop = tr.calm ? 0 : clamp(tr.span * 1.35, 0.55, 15);
     var dist = Math.exp(lerp(Math.log(gA.dist), Math.log(gB.dist), s)) + hop * Math.sin(PI * s);
-    if (tr.aOut && u < A) dist = Math.exp(lerp(Math.log(gA.dist * 0.04), Math.log(gA.dist), ease(u / A)));
-    if (tr.bIn && u > B) dist = Math.exp(lerp(Math.log(gB.dist), Math.log(gB.dist * 0.04), ease((u - B) / (1 - B))));
+    if (goOut && u < A) dist = Math.exp(lerp(Math.log(gA.dist * 0.04), Math.log(gA.dist), ease(u / A)));
+    if (comeIn && u > B) dist = Math.exp(lerp(Math.log(gB.dist), Math.log(gB.dist * 0.04), ease((u - B) / (1 - B))));
     this.gal.target = V.lerp(gA.target, gB.target, s);
     this.gal.dist = dist;
     var dAz = gB.az - gA.az;
@@ -833,14 +1035,21 @@
     if (u >= 1) {
       this.tr = null;
       this.warpFx = 0;
-      if (tr.to === 'map') { this.mode = 'map'; this.wClose = 0; }
-      else { this.mode = 'close'; this.wClose = 1; this.closeZoom = 1; }
+      if (tr.to === 'map') { this.mode = 'map'; this.wClose = 0; this.wSky = 0; }
+      else if (tr.to === 'sky') { this.mode = 'sky'; this.wClose = 0; this.wSky = 1; }
+      else { this.mode = 'close'; this.wClose = 1; this.closeZoom = 1; this.wSky = 0; }
       if (this.onArrive) this.onArrive(tr.to);
     }
   };
 
   /* ------------------------------------------------------------ input */
   Scene.prototype.orbit = function (dx, dy) {
+    if (this.mode === 'sky') {
+      var k = this.skyCam.fov / (60 * DEG);
+      this.skyCam.yaw += dx * 0.0032 * k;
+      this.skyCam.pitch = clamp(this.skyCam.pitch + dy * 0.0032 * k, -1.3, 1.3);
+      return;
+    }
     if (this.mode === 'map') {
       this.mapUser.az -= dx * 0.005;
       this.mapUser.el = clamp(this.mapUser.el + dy * 0.004, -0.75, 0.45);
@@ -850,6 +1059,7 @@
     }
   };
   Scene.prototype.zoomBy = function (f) {
+    if (this.mode === 'sky') { this.skyCam.fovTarget = clamp(this.skyCam.fovTarget / f, 18 * DEG, 100 * DEG); return; }
     if (this.mode === 'map') this.mapUser.zoom = clamp(this.mapUser.zoom * f, 0.6, 9);
     else this.close.zoom = clamp(this.close.zoom * f, 0.55, 2.2);
   };
@@ -889,11 +1099,12 @@
     this.resize();
     if (this.tr) this.updateTravel(dt);
     else this.closeZoom = 1;
+    this.updateEvents(dt);
     this.fade = Math.min(1, this.fade + dt * 0.8);
 
     // finish sky generation, one face per frame
     if (this.cubeJob) {
-      this.renderCubeFace(this.cubeJob.target, this.cubeJob.face, this.cubeJob.preset);
+      this.renderCubeFace(this.cubes[this.cubeJob.target], this.cubeJob.face, this.cubeJob.preset);
       this.cubeJob.face++;
       if (this.cubeJob.face >= 6) { this.cubeActive = this.cubeJob.target; this.cubeJob = null; }
     }
@@ -915,21 +1126,34 @@
 
     /* ---- close-up camera */
     var pr = this.preset, cl = this.close;
-    var shift = narrow ? [0, 0.2] : [this.lensShift[0], this.lensShift[1]];
-    var cEye = [0, 0, 20], cVP = gVP, cB = gB, cView, cProj;
+    var shift = narrow ? [0, 0.2] : this.cinema ? [0, 0.03] : [this.lensShift[0], this.lensShift[1]];
+    var cEye = [0, 0, 20], cVP = gVP, cB = gB, cView, cProj, ep = this.evp;
     if (pr) {
-      if (!this.dragging) { cl.userAz += cl.velAz; cl.velAz *= 0.92; if (!st.calm) cl.userAz += dt * 0.012; }
-      var az = pr.camAz + cl.userAz, el = clamp(pr.camEl + cl.userEl, -1.2, 1.2);
-      var dist = cl.dist * (narrow ? 1.35 : 1) / cl.zoom * (this.closeZoom || 1);
+      if (!this.dragging) { cl.userAz += cl.velAz; cl.velAz *= 0.92; if (!st.calm) cl.userAz += dt * (this.cinema ? 0.05 : 0.012); }
+      var az = pr.camAz + cl.userAz, el = clamp(pr.camEl + cl.userEl + (this.cinema ? 0.12 * Math.sin(this.time * 0.13) : 0), -1.2, 1.2);
+      var breathe = this.cinema ? 1.04 - 0.14 * Math.sin(this.time * 0.19) : 1;
+      var dist = cl.dist * (narrow ? 1.35 : 1) / cl.zoom * (this.closeZoom || 1) * breathe * (ep ? ep.zoom : 1);
       cEye = V.mul([Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)], dist);
+      if (ep && ep.shake) cEye = V.add(cEye, ep.shake);
       cView = M.lookAt(cEye, [0, 0, 0], [0, 1, 0]);
       cProj = M.persp(cl.fov, aspect, 0.05, 900, shift[0], shift[1]);
       cVP = M.mul(cProj, cView);
       cB = camBasis(cEye, [0, 0, 0], [0, 1, 0]);
     }
-    this.cVP = cVP; this.gVP = gVP;
-    var wC = pr ? this.wClose : 0, wG = 1 - wC;
-    if (this.mode === 'close') wG = 0;
+    /* ---- sky from Earth */
+    var wS = this.mode === 'sky' ? 1 : this.mode === 'close' ? 0 : (this.wSky || 0);
+    var sVP = null, sB = null, sFov = this.skyCam.fov;
+    if (wS > 0.001 && this.sky) {
+      if (this.skyTurn) { this.skyTurn.t += dt; if (this.skyTurn.t >= this.skyTurn.dur) this.skyTurn = null; }
+      this.skyCam.fov += (this.skyCam.fovTarget - this.skyCam.fov) * (1 - Math.exp(-dt * 1.4));
+      var lk = this.skyLook();
+      sFov = this.skyCam.fov + (this.skyTurn ? 26 * DEG * Math.sin(PI * clamp(this.skyTurn.t / this.skyTurn.dur, 0, 1)) : 0);
+      sVP = M.mul(M.persp(sFov, aspect, 0.5, 400, shift[0], shift[1]), M.lookAt([0, 0, 0], lk.f, lk.up));
+      sB = camBasis([0, 0, 0], lk.f, lk.up);
+    }
+    this.cVP = cVP; this.gVP = gVP; this.sVP = sVP;
+    var wC = pr && this.mode !== 'sky' ? this.wClose : 0;
+    var wG = this.mode === 'close' || this.mode === 'sky' ? 0 : Math.max(0, 1 - wC - wS);
     var enc = this.enc;
     var pxPerRad = this.H / (2 * Math.tan(cl.fov / 2));
 
@@ -942,13 +1166,16 @@
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
 
-    // sky: in close-up use the close camera, otherwise the galaxy camera
-    var skyB = wC > 0.5 ? cB : gB, skyFov = wC > 0.5 ? cl.fov : this.gal.fov, skyShift = wC > 0.5 ? shift : gShift;
+    // background: whichever view dominates (Earth's sky, the close-up, or the galaxy)
+    var skyB, skyFov, skyShift, skyCube = this.cubes[this.cubeActive], skyW, starGain;
+    if (wS > 0.5 && sB) { skyB = sB; skyFov = sFov; skyShift = shift; skyCube = this.sky.cube; skyW = wS; starGain = 0.34; }
+    else if (wC > 0.5) { skyB = cB; skyFov = cl.fov; skyShift = shift; skyW = wC * (ep ? ep.neb : 1); starGain = lerp(0.45, 1.0, wC); }
+    else { skyB = gB; skyFov = this.gal.fov; skyShift = gShift; skyW = 0; starGain = 0.45; }
     var tanY = Math.tan(skyFov / 2);
     var sky = this.pSky.use();
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.cubes[this.cubeActive]);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.cubes[1 - this.cubeActive]);
-    sky.i1('uCubeA', 0).i1('uCubeB', 1).f1('uMix', 0).f1('uSky', wC * 1.0).f1('uStarGain', lerp(0.45, 1.0, wC))
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyCube);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyCube);
+    sky.i1('uCubeA', 0).i1('uCubeB', 1).f1('uMix', 0).f1('uSky', skyW).f1('uStarGain', starGain)
       .f1('uPix', 2 * tanY / this.H).f1('uTime', this.time).f1('uOut', enc).f1('uGal', wG)
       .f3('uR', skyB.r).f3('uU', skyB.u).f3('uF', skyB.f).f2('uTan', tanY * aspect, tanY).f2('uShift', skyShift[0], skyShift[1]);
     this.tri.draw();
@@ -963,6 +1190,9 @@
     var beamParams = null;
     if (pr && wC > 0.001) beamParams = this.drawClose(pr, cVP, cEye, cB, wC, st, pxPerRad);
 
+    /* ---- Earth's sky */
+    if (wS > 0.001 && sVP) this.drawSky(sVP, wS, st);
+
     /* ================= beams (half resolution) */
     if (beamParams) {
       this.tBeam.bind();
@@ -973,7 +1203,9 @@
         .i1('uN', beamParams.n).v3('uC', beamParams.C).m3('uS', beamParams.S).v4('uP', beamParams.P).v2('uW', beamParams.W)
         .v3('uCc', beamParams.Cc).v3('uCh', beamParams.Ch).v1('uRad', beamParams.R)
         .f1('uJet', pr.vis.jets || 0).f1('uTorus', pr.vis.torus || 0).f1('uTime', this.time).f1('uOut', enc)
-        .f1('uFrame', this.frameNo).f1('uBound', beamParams.bound);
+        .f1('uFrame', this.frameNo).f1('uBound', beamParams.bound)
+        .f4('uShell', beamParams.shell ? [beamParams.shell.R, beamParams.shell.W, beamParams.shell.amp, this.time] : [0, 0, 0, 0])
+        .f3('uShellA', [1.0, 0.86, 0.62]).f3('uShellB', [1.0, 0.36, 0.18]);
       this.tri.draw();
       this.tScene.bind();
       gl.enable(gl.BLEND);
@@ -1012,12 +1244,12 @@
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tScene.tex);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.mips[0].tex);
     var centre = [0.5 + shift[0] * 0.5, 0.5 + shift[1] * 0.5];
-    this.pFinal.use().i1('uScene', 0).i1('uBloom', 1).f1('uBloomAmt', 0.62).f1('uExposure', 1.05 + (st.flash || 0) * 0.08)
+    this.pFinal.use().i1('uScene', 0).i1('uBloom', 1).f1('uBloomAmt', 0.62).f1('uExposure', 1.05 + (st.flash || 0) * 0.08 + (ep ? ep.flash * (ep.kind === 'supernova' ? 1.4 : 0.25) : 0))
       .f1('uWarp', this.warpFx).f1('uTime', this.time).f1('uIn', 1 / enc).f1('uGrain', 0.028).f1('uFade', this.fade)
       .f2('uRes', this.W, this.H).f2('uCenter', centre[0], centre[1]);
     this.tri.draw();
 
-    this.buildLabels(pr, cVP, gVP, wC, wG, st);
+    this.buildLabels(pr, cVP, gVP, wC, wG, st, wS);
   };
 
   Scene.prototype.drawGalaxy = function (VP, eye, B, w, st) {
@@ -1027,7 +1259,7 @@
     this.galaxy.draw();
     // markers
     var g = this.pGlow.use();
-    g.m4('uVP', VP).f2('uRes', this.W, this.H).f1('uOut', enc).f2('uStretch', 1, 1).f1('uSize', 0);
+    g.m4('uVP', VP).f2('uRes', this.W, this.H).f1('uOut', enc).f2('uStretch', 1, 1).f1('uSize', 0).f1('uRing', 0);
     var dpr = this.W / this.cssW;
     for (var i = 0; i < this.gpos.length; i++) {
       var p = this.pulsars[i], f = 1 / p.P;
@@ -1040,6 +1272,45 @@
     }
     g.f3('uCenter', this.sunPos).f1('uPixSize', 16 * dpr).f3('uCol', [1.0, 0.9, 0.55]).f1('uInt', w * 1.2).f1('uCore', 1.0);
     this.quad.draw();
+  };
+
+  /* The sky seen from Earth: real stars, constellation figures, and the pulsars
+   * blinking where they really are. */
+  Scene.prototype.drawSky = function (VP, w, st) {
+    var gl = this.gl, enc = this.enc, sky = this.sky, dpr = this.W / this.cssW, i;
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    var lp = this.pLine.use();
+    lp.m4('uVP', VP).m4('uModel', M.ident()).f2('uRes', this.W, this.H).f1('uTime', this.time).f1('uOut', enc * w)
+      .f1('uGrid', 0).f4('uGW', [0, 0, 0, 0]).f1('uFlow', 0).f1('uDash', 0);
+    lp.f3('uCol', [0.5, 0.6, 0.85]).f1('uAlpha', 0.06).f1('uWidth', 1 * dpr);
+    sky.grid.draw();
+    lp.f3('uCol', [0.55, 0.72, 1.0]).f1('uAlpha', 0.3).f1('uWidth', 1.1 * dpr);
+    sky.lines.draw();
+    var hl = this.skyHighlight();
+    if (hl) { lp.f3('uCol', [1.0, 0.74, 0.38]).f1('uAlpha', 0.6).f1('uWidth', 1.6 * dpr); hl.draw(); }
+    var pp = this.pPts.use();
+    pp.m4('uVP', VP).m4('uMag', M.ident()).f1('uMode', 3).f1('uDpr', dpr).f1('uTime', this.time).f1('uOut', enc * w)
+      .f1('uGain', 1).f3('uEye', [0, 0, 0]).f1('uPx', 1);
+    sky.stars.draw();
+    var g = this.pGlow.use();
+    g.m4('uVP', VP).f2('uRes', this.W, this.H).f1('uOut', enc * w).f2('uStretch', 1, 1).f1('uSize', 0).f1('uRing', 0);
+    for (i = 0; i < this.skyDir.length; i++) {
+      var pos = V.mul(this.skyDir[i], 100);
+      if (i === this.cur) {
+        var fl = st.calm ? 0.3 : (st.flash || 0);
+        g.f3('uCenter', pos).f1('uPixSize', 14 * dpr).f3('uCol', [0.75, 0.95, 1.0]).f1('uInt', 0.7 + 2.2 * fl).f1('uCore', 1.6).f1('uRing', 0);
+        this.quad.draw();
+        var ph = st.f < 3 ? ((st.phi % 1) + 1) % 1 : (this.time * 0.7) % 1;
+        g.f1('uPixSize', 46 * dpr).f1('uRing', 0.25 + 0.7 * ph).f1('uInt', (1 - ph) * 0.9).f3('uCol', [0.7, 0.92, 1.0]);
+        this.quad.draw();
+        g.f1('uRing', 0);
+      } else {
+        g.f3('uCenter', pos).f1('uPixSize', 9 * dpr).f3('uCol', [1.0, 0.75, 0.42]).f1('uInt', 0.55).f1('uCore', 1.0);
+        this.quad.draw();
+      }
+    }
   };
 
   /* Close-up of the current pulsar. Returns the parameters for the beam pass. */
@@ -1060,7 +1331,9 @@
     }
     var body = bodyAt(psi);
     var mu = V.add(V.mul(body.bx, Math.sin(al)), V.mul(Om, Math.cos(al)));
-    var flash = st.flash || 0;
+    var ep = this.evp, vis = ep ? ep.vis : 1;
+    var flash = (st.flash || 0) * vis + (ep && ep.kind === 'glitch' ? ep.flash : 0);
+    var fl = st.calm ? 0 : this.flareAmp * Math.exp(-this.flareT / 0.12);
 
     // --- opaque spheres
     gl.enable(gl.DEPTH_TEST);
@@ -1071,8 +1344,14 @@
     sp.m4('uVP', VP).f3('uEye', eye).f3('uCamR', B.r).f3('uCamU', B.u).f1('uOut', enc * w).f1('uTime', t);
     var bodyM = new Float32Array([body.bx[0], body.by[0], Om[0], body.bx[1], body.by[1], Om[1], body.bx[2], body.by[2], Om[2]]);
     sp.f3('uCenter', [0, 0, 0]).f1('uRad', 1).f1('uKind', 0).m3('uBody', bodyM).f3('uMagB', [Math.sin(al), 0, Math.cos(al)])
-      .f3('uCol', v.surf).f1('uFlash', flash).f1('uTexAmt', 1 / (1 + D * 2.5)).f1('uBright', 1).f3('uLight', [0, 1, 0]);
-    this.quad.draw();
+      .f3('uCol', V.mul(v.surf, vis)).f1('uFlash', flash + fl * 1.5).f1('uTexAmt', 1 / (1 + D * 2.5)).f1('uBright', 1).f3('uLight', [0, 1, 0])
+      .f1('uQuake', ep ? ep.quake : 0);
+    if (vis > 0.03) this.quad.draw();
+    sp.f1('uQuake', 0);
+    if (ep && ep.prog > 0.01) {
+      sp.f1('uRad', ep.progR).f1('uKind', 3).f1('uBright', ep.prog * ep.progBright);
+      this.quad.draw();
+    }
 
     var comp = null, planets = [];
     var ofr = pr.orbitFrame;
@@ -1116,22 +1395,27 @@
       var bd = bodyAt(ps);
       var zm = V.add(V.mul(bd.bx, Math.sin(al)), V.mul(Om, Math.cos(al)));
       var xm = V.sub(V.mul(bd.bx, Math.cos(al)), V.mul(Om, Math.sin(al)));
-      lp.m4('uModel', M.basis(xm, bd.by, zm)).f1('uAlpha', 0.22 / Math.sqrt(K) * (K > 1 ? 1.25 : 1));
+      lp.m4('uModel', M.basis(xm, bd.by, zm)).f1('uAlpha', 0.22 / Math.sqrt(K) * (K > 1 ? 1.25 : 1) * vis * (1 + 2.5 * (ep ? ep.quake : 0)));
       pr.field.draw();
     }
     lp.m4('uModel', M.ident());
     // spin axis and Earth line
-    lp.f3('uCol', [0.55, 0.62, 0.8]).f1('uAlpha', 0.28).f1('uWidth', 1 * dpr).f1('uDash', 14).f1('uFlow', 0);
+    lp.f3('uCol', [0.55, 0.62, 0.8]).f1('uAlpha', 0.28 * vis).f1('uWidth', 1 * dpr).f1('uDash', 14).f1('uFlow', 0);
     pr.axis.draw();
-    var earthGlow = 0.28 + (st.envVis || 0) * 0.9;
+    var earthGlow = (0.28 + (st.envVis || 0) * 0.9) * vis;
     lp.f3('uCol', [1.0, 0.72, 0.32]).f1('uAlpha', earthGlow).f1('uWidth', 1.4 * dpr).f1('uDash', 20);
     pr.earthLine.draw();
+    if (fl > 0.02) {
+      // a giant pulse is a flash in the beam that points at us
+      lp.f3('uCol', [0.85, 0.95, 1.0]).f1('uAlpha', Math.min(1.6, fl * 1.6)).f1('uWidth', 2.6 * dpr).f1('uDash', 0);
+      pr.earthLine.draw();
+    }
     if (pr.showLc && pr.lcRing) {
-      lp.f3('uCol', [1.0, 0.7, 0.35]).f1('uAlpha', 0.3).f1('uWidth', 1.2 * dpr).f1('uDash', 60);
+      lp.f3('uCol', [1.0, 0.7, 0.35]).f1('uAlpha', 0.3 * vis).f1('uWidth', 1.2 * dpr).f1('uDash', 60);
       pr.lcRing.draw();
     }
     if (pr.orbits) {
-      lp.f3('uCol', [0.7, 0.78, 0.95]).f1('uAlpha', 0.22).f1('uWidth', 1 * dpr).f1('uDash', 0);
+      lp.f3('uCol', [0.7, 0.78, 0.95]).f1('uAlpha', 0.22 * vis).f1('uWidth', 1 * dpr).f1('uDash', 0);
       pr.orbits.draw();
     }
     if (v.gw && ofr) {
@@ -1150,22 +1434,45 @@
     pp.f1('uMode', 0).m4('uMag', M.ident()).f3('uB1', [0, 1, 0]).f3('uQ1', [1, 0, 0]).f3('uPCol', [1, 1, 1]);
     pr.near.draw();
     var zmN = mu, xmN = V.sub(V.mul(body.bx, Math.cos(al)), V.mul(Om, Math.sin(al)));
-    pp.f1('uMode', 1).m4('uMag', M.basis(xmN, body.by, zmN)).f3('uPCol', V.mul(v.halo, 1.3)).f1('uGain', D > 2 ? 0.5 : 1);
+    pp.f1('uMode', 1).m4('uMag', M.basis(xmN, body.by, zmN)).f3('uPCol', V.mul(v.halo, 1.3)).f1('uGain', (D > 2 ? 0.5 : 1) * vis);
     pr.fparts.draw();
     var q1 = V.norm(V.cross(mu, Om));
     if (D < 2.5) {
-      pp.f1('uMode', 2).f3('uB1', mu).f3('uQ1', q1).f3('uPCol', V.mul(v.beam, 1.2)).f1('uGain', 1 - D / 2.5);
+      pp.f1('uMode', 2).f3('uB1', mu).f3('uQ1', q1).f3('uPCol', V.mul(v.beam, 1.2)).f1('uGain', (1 - D / 2.5) * vis);
       pr.bparts.draw();
+    }
+    if (ep && ep.ejT >= 0 && this.ejecta) {
+      pp.f1('uMode', 4).f1('uEv', ep.ejT).f1('uGain', 1.2);
+      this.ejecta.draw();
     }
 
     // glow sprites
     gl.disable(gl.DEPTH_TEST);
     var g = this.pGlow.use();
-    g.m4('uVP', VP).f3('uR', B.r).f3('uU', B.u).f2('uRes', this.W, this.H).f1('uOut', enc * w).f1('uPixSize', 0).f2('uStretch', 1, 1);
-    g.f3('uCenter', [0, 0, 0]).f1('uSize', 2.5).f3('uCol', V.mul(v.halo, 0.7)).f1('uInt', 0.28 + flash * 0.8).f1('uCore', 0.1);
+    g.m4('uVP', VP).f3('uR', B.r).f3('uU', B.u).f2('uRes', this.W, this.H).f1('uOut', enc * w).f1('uPixSize', 0).f2('uStretch', 1, 1).f1('uRing', 0);
+    g.f3('uCenter', [0, 0, 0]).f1('uSize', 2.5).f3('uCol', V.mul(v.halo, 0.7)).f1('uInt', (0.28 + flash * 0.8) * vis).f1('uCore', 0.1);
     this.quad.draw();
-    g.f1('uSize', 1.12).f3('uCol', [0.9, 0.95, 1.0]).f1('uInt', 0.12 + flash * 1.1).f1('uCore', 1.0);
+    g.f1('uSize', 1.12).f3('uCol', [0.9, 0.95, 1.0]).f1('uInt', (0.12 + flash * 1.1) * vis + fl * 2.2).f1('uCore', 1.0);
     this.quad.draw();
+    if (ep && ep.prog > 0.01) {
+      g.f1('uSize', ep.progR * 2.3).f3('uCol', [1.0, 0.42, 0.16]).f1('uInt', 0.5 * ep.prog * ep.progBright).f1('uCore', 0.05);
+      this.quad.draw();
+    }
+    if (ep && ep.kind === 'supernova' && ep.flash > 0.01) {
+      g.f1('uSize', 16).f3('uCol', [1.0, 0.92, 0.8]).f1('uInt', ep.flash * 1.3).f1('uCore', 0.6);
+      this.quad.draw();
+    }
+    if (ep && ep.ring) {
+      g.f1('uSize', ep.ring.r).f1('uRing', 0.92).f3('uCol', [0.75, 0.9, 1.0]).f1('uInt', ep.ring.a * 1.1);
+      this.quad.draw();
+      g.f1('uRing', 0);
+    }
+    var fa = st.calm ? 0 : this.flareAmp * Math.exp(-this.flareT / 0.28) * 0.8;
+    if (fa > 0.01) {
+      g.f1('uSize', 1.4 + 9 * (1 - Math.exp(-this.flareT / 0.2))).f1('uRing', 0.92).f3('uCol', [0.8, 0.92, 1.0]).f1('uInt', fa);
+      this.quad.draw();
+      g.f1('uRing', 0);
+    }
     if (flash > 0.02) {
       g.f1('uSize', 7).f2('uStretch', 1.6, 0.03).f3('uCol', V.mul(v.beam, 0.8)).f1('uInt', flash * 0.8).f1('uCore', 0.8);
       this.quad.draw();
@@ -1186,7 +1493,8 @@
       Cc: new Float32Array(6), Ch: new Float32Array(6), R: new Float32Array([1, 1])
     };
     out.S.set([xs[0], xs[1], xs[2], ys[0], ys[1], ys[2], Om[0], Om[1], Om[2]], 0);
-    out.P.set([al, pr.rho, pr.lenBeam, ints * (1 + flash * 0.25)], 0);
+    out.P.set([al, pr.rho, pr.lenBeam, ints * (1 + flash * 0.25) * vis], 0);
+    if (ep && ep.shell) { out.shell = ep.shell; out.bound = Math.max(out.bound, ep.shell.R + ep.shell.W * 3 + 2); }
     out.W.set([psi, D], 0);
     out.Cc.set(v.beam, 0); out.Ch.set(v.halo, 0);
     if (comp && comp.c.kind === 'pulsar' && st.partner) {
@@ -1214,8 +1522,23 @@
     return { x: sx, y: sy, z: c[2] };
   };
 
-  Scene.prototype.buildLabels = function (pr, cVP, gVP, wC, wG, st) {
+  Scene.prototype.buildLabels = function (pr, cVP, gVP, wC, wG, st, wS) {
     var L = [], self = this, i;
+    var vis = this.evp ? this.evp.vis : 1;
+    if (wS > 0.5 && this.sVP && this.sky) {
+      var SV = this.sVP, W = this.cssW, H = this.cssH;
+      this.sky.names.forEach(function (n) {
+        var q = self.project(SV, V.mul(n.dir, 100));
+        if (q && q.x > -60 && q.x < W + 60 && q.y > -20 && q.y < H + 20) L.push({ key: 'c_' + n.abbr, text: n.name, x: q.x, y: q.y, a: wS * 0.9, kind: 'const' });
+      });
+      for (i = 0; i < this.skyDir.length; i++) {
+        var q2 = this.project(SV, V.mul(this.skyDir[i], 100));
+        if (!q2) continue;
+        var ps = this.pulsars[i];
+        if (i === this.cur) L.push({ key: 'sc' + i, text: ps.name, sub: 'in ' + ps.constellation + ' \u00b7 ' + fmtLy(CC.derive(ps).distLy), x: q2.x, y: q2.y, a: wS, kind: 'skycur' });
+        else L.push({ key: 's' + i, idx: i, text: ps.short, x: q2.x, y: q2.y, a: wS * 0.9, kind: 'marker' });
+      }
+    }
     if (wG > 0.35) {
       for (i = 0; i < this.gpos.length; i++) {
         var q = this.project(gVP, this.gpos[i]);
@@ -1224,7 +1547,11 @@
       var s = this.project(gVP, this.sunPos);
       if (s) L.push({ key: 'sun', text: 'Sun', x: s.x, y: s.y, a: wG, kind: 'sun' });
     }
-    if (pr && wC > 0.6) {
+    if (pr && wC > 0.6 && !st.calm && this.flareT < 0.9 && this.flareAmp > 0) {
+      var gq = this.project(cVP, [0, 1.6, 0]);
+      if (gq) L.push({ key: 'giant', text: 'giant pulse', x: gq.x, y: gq.y - 18, a: wC * (1 - this.flareT / 0.9), kind: 'tag' });
+    }
+    if (pr && wC > 0.6 && vis > 0.5) {
       var d = CC.derive(pr.p);
       var e = this.project(cVP, V.mul(pr.earth, 6.8));
       if (e) L.push({ key: 'earth', text: 'to Earth', sub: fmtLy(d.distLy), x: e.x, y: e.y, a: wC, kind: 'note', glow: st.envVis || 0 });

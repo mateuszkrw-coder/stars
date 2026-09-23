@@ -67,7 +67,7 @@ CC.PULSARS = [
     aka: 'PSR J0332+5434',
     title: 'The heartbeat',
     kind: 'Radio pulsar · one of the brightest',
-    P: 0.7145197, Pstr: '0.7145197 s', Pdot: 2.05e-15,
+    P: 0.7145197, Pstr: '0.7145197 s', Pdot: 2.05e-15, rec: true,
     distKpc: 1.64, ra: 53.247, dec: 54.579,
     constellation: 'Camelopardalis',
     year: 1968, found: 'early pulsar surveys',
@@ -93,7 +93,7 @@ CC.PULSARS = [
     aka: 'CP 0950',
     title: 'The near neighbour',
     kind: 'Radio pulsar · 17 million years old',
-    P: 0.2530652, Pstr: '0.2530652 s', Pdot: 2.29e-16,
+    P: 0.2530652, Pstr: '0.2530652 s', Pdot: 2.29e-16, rec: true,
     distKpc: 0.262, ra: 148.289, dec: 7.927,
     constellation: 'Leo',
     year: 1968, found: 'Cambridge, among the first four pulsars',
@@ -119,7 +119,8 @@ CC.PULSARS = [
     aka: 'PSR B0833−45',
     title: 'The glitcher',
     kind: 'Young pulsar · in a supernova remnant',
-    P: 0.08933, Pstr: '89.33 ms', Pdot: 1.25e-13,
+    P: 0.08933, Pstr: '89.33 ms', Pdot: 1.25e-13, rec: true,
+    events: ['supernova', 'glitch'], snWhen: ['About 11,000 years ago', 'a massive star runs out of fuel'], snNow: ['Today', 'the Vela supernova remnant, and its pulsar'],
     distKpc: 0.287, ra: 128.836, dec: -45.176,
     constellation: 'Vela',
     year: 1968, found: 'Molonglo Observatory, Australia',
@@ -173,7 +174,8 @@ CC.PULSARS = [
     aka: 'PSR B0531+21',
     title: 'Born in the year 1054',
     kind: 'Young pulsar · powers the Crab Nebula',
-    P: 0.03378, Pstr: '≈33.8 ms', Pdot: 4.2e-13,
+    P: 0.03378, Pstr: '≈33.8 ms', Pdot: 4.2e-13, rec: true,
+    events: ['supernova'], snWhen: ['The year 1054', 'a star about ten times the Sun’s mass runs out of fuel'], snNow: ['Today', 'the Crab Nebula, and the pulsar at its heart'],
     distKpc: 2.0, ra: 83.633, dec: 22.015,
     constellation: 'Taurus',
     year: 1968, found: 'David Staelin & Edward Reifenstein, Green Bank',
@@ -260,7 +262,7 @@ CC.PULSARS = [
     aka: '',
     title: 'The precision clock',
     kind: 'Millisecond pulsar · white-dwarf binary',
-    P: 0.005757451941593412, Pstr: '5.757451941593412 ms', Pdot: 5.73e-20,
+    P: 0.005757451941593412, Pstr: '5.757451941593412 ms', Pdot: 5.73e-20, rec: true,
     distKpc: 0.157, ra: 69.316, dec: -47.253,
     constellation: 'Pictor',
     year: 1993, found: 'Parkes 70 cm survey, Australia',
@@ -287,7 +289,7 @@ CC.PULSARS = [
     aka: 'PSR J1939+2134',
     title: 'The first millisecond pulsar',
     kind: 'Millisecond pulsar · isolated',
-    P: 0.0015578065, Pstr: '1.557806 ms', Pdot: 1.05e-19,
+    P: 0.0015578065, Pstr: '1.557806 ms', Pdot: 1.05e-19, rec: true,
     distKpc: 3.5, ra: 294.911, dec: 21.583,
     constellation: 'Vulpecula',
     year: 1982, found: 'Don Backer, Shri Kulkarni et al., Arecibo',
@@ -338,6 +340,7 @@ CC.PULSARS = [
 
 /* Derived numbers used across the UI. Everything shown as a "calculation" on
  * the page comes from here, so the arithmetic lives in one place. */
+CC.REC_URL = 'https://www.jb.man.ac.uk/research/pulsar/Education/Sounds/';
 CC.C_KMS = 299792.458;
 CC.R_NS_KM = 12;          // nominal neutron-star radius used for equator speed
 CC.YEAR_S = 31557600;     // Julian year
