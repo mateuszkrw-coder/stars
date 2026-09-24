@@ -4,8 +4,46 @@
 tune a radio dial across twelve real neutron stars, hear each one tick at its true rotation rate,
 and fly between them across a model of the Milky Way.
 
-Open `index.html` in a browser (or `dist/cosmic-clocks.html`, the same site bundled into one file).
-No build step, no dependencies, no server needed.
+### ▶ [Try it live: mateuszkrw-coder.github.io/cosmic-clocks](https://mateuszkrw-coder.github.io/cosmic-clocks/)
+
+[![PSR J1748−2446ad, the fastest-spinning pulsar known, turning 716 times a second](docs/screenshots/02-j1748-fastest.jpg)](https://mateuszkrw-coder.github.io/cosmic-clocks/)
+
+Runs in any modern browser on desktop or phone. Press **Tune in with sound** and turn the volume up
+(headphones help with the slow ones). Nothing to install.
+
+To run it offline, download [`dist/cosmic-clocks.html`](dist/cosmic-clocks.html) (the whole site in one
+file) and double-click it, or clone the repository and open `index.html`. No build step, no dependencies,
+no server needed.
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/01-intro.jpg" alt="Start screen: 'Dead stars that still keep perfect time' over a model of the Milky Way"><br><sub><b>Start screen.</b> The twelve pulsars marked at their real positions in the galaxy.</sub></td>
+<td width="50%"><img src="docs/screenshots/05-galaxy-map.jpg" alt="Galaxy map with all twelve pulsars and the Sun labelled"><br><sub><b>Galaxy map.</b> Where each pulsar sits relative to the Sun. Switching stars flies you there.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/03-b1919-first-pulsar.jpg" alt="PSR B1919+21 with its radio beams and magnetic field lines"><br><sub><b>PSR B1919+21</b>, the first pulsar ever found (1967). The pulse stack is drawn like the famous <i>Unknown Pleasures</i> plot.</sub></td>
+<td><img src="docs/screenshots/04-crab.jpg" alt="The Crab pulsar inside the Crab Nebula"><br><sub><b>The Crab pulsar</b> inside its nebula, turning 29.6 times a second: you hear a low buzz.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/06-sky-from-earth.jpg" alt="Sky from Earth: the Crab pulsar marked at the tip of the Taurus constellation"><br><sub><b>Sky from Earth.</b> The Crab at the tip of Taurus's horn, among 5,000 real naked-eye stars.</sub></td>
+<td><img src="docs/screenshots/07-supernova.jpg" alt="Supernova replay: an expanding shell of glowing debris"><br><sub><b>Supernova replay.</b> The blast of 1054 expanding before the Crab Nebula forms around the newborn pulsar.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/08-glitch.jpg" alt="Vela pulsar glitch: a shockwave ring around the star with the caption 'Glitch'"><br><sub><b>A Vela glitch.</b> The star's crust "quakes", the spin jumps, and you hear the pitch change.</sub></td>
+<td><img src="docs/screenshots/09-tour.jpg" alt="Tour mode: full-screen view of PSR J0901−4046 with a cinematic caption"><br><sub><b>Tour mode.</b> A hands-free, full-screen trip through all twelve.</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/10-phone-j1748.jpg" alt="Phone view of PSR J1748−2446ad"></td>
+<td width="33%"><img src="docs/screenshots/11-phone-sky.jpg" alt="Phone view of the sky from Earth"></td>
+<td width="33%"><img src="docs/screenshots/12-phone-instruments.jpg" alt="Phone view scrolled to the pulse stack and rotation clock"></td>
+</tr>
+<tr><td colspan="3"><sub><b>On a phone.</b> The same site: scroll down for the instruments and the logbook.</sub></td></tr>
+</table>
 
 ## What's in it
 
@@ -55,7 +93,8 @@ No build step, no dependencies, no server needed.
 | `?` | how it works |
 
 Drag the sky to look around, scroll to zoom, drag the dial to scan between stations.
-Deep links work too: `index.html#j1748` opens the fastest pulsar directly.
+Deep links work too: [`…/cosmic-clocks/#j1748`](https://mateuszkrw-coder.github.io/cosmic-clocks/#j1748) opens
+the fastest pulsar directly, and `#b1919` the first one found.
 
 ## The twelve
 
@@ -102,6 +141,7 @@ js/instruments.js   pulse stack, rotation clock, tuning dial
 js/app.js           state, navigation, controls
 tools/build.mjs     bundles everything into dist/cosmic-clocks.html
 tools/make-sky-data.mjs  regenerates js/sky-data.js from the d3-celestial package
+docs/screenshots/    the images in this README
 ```
 
 Run `node tools/build.mjs` after editing to refresh the single-file bundle.

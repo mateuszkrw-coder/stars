@@ -591,7 +591,12 @@
   /* Screen areas covered by panels: scene labels there are hidden. */
   function measureBlockers() {
     blockers = [];
-    if (window.innerWidth <= 760) return;
+    if (window.innerWidth <= 760) {
+      // phones: the text scrolls up over the scene, so labels stay above it
+      var t = $('#identity').getBoundingClientRect().top;
+      blockers.push([-1e5, t - 6, 1e5, 1e5]);
+      return;
+    }
     ['#identity', '.instruments', '.settings', '#logbook', '.console', '.topbar .top-actions'].forEach(function (sel) {
       var el = $(sel);
       if (!el) return;
@@ -674,6 +679,7 @@
     $('#evcap').style.left = cx.toFixed(0) + 'px';
   }
   window.addEventListener('resize', updateLens);
+  window.addEventListener('scroll', function () { if (window.innerWidth <= 760) measureBlockers(); }, { passive: true });
 
   function toast(msg) {
     var t = $('#toast');
